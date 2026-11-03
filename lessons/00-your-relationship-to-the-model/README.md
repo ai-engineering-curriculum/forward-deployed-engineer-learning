@@ -46,7 +46,8 @@ Each row is a sibling org: what you hand them, what they hand you, and the role 
 ## Your ladder
 
 - **Before this role:** [AI Evaluation Engineer](https://github.com/ai-engineering-curriculum/ai-eval-engineer-learning), [Agentic AI Engineer](https://github.com/ai-engineering-curriculum/agentic-ai-engineer-learning), [Applied AI Engineer](https://github.com/ai-engineering-curriculum/applied-ai-engineer-learning), [RAG & Retrieval Engineer](https://github.com/ai-engineering-curriculum/rag-engineer-learning)
-- **After this role:** [Senior Agentic AI Engineer](https://github.com/ai-engineering-curriculum/senior-agentic-ai-engineer-learning)
+- **Alongside it (same level):** [Voice & Multimodal Agent Engineer](https://github.com/ai-engineering-curriculum/voice-agent-engineer-learning)
+- **After this role:** [Agent Platform Engineer](https://github.com/ai-engineering-curriculum/agent-platform-engineer-learning), [Senior Agentic AI Engineer](https://github.com/ai-engineering-curriculum/senior-agentic-ai-engineer-learning)
 
 ## Scenario: One model upgrade, five orgs
 

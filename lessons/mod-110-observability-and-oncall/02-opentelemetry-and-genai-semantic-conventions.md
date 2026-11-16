@@ -8,7 +8,7 @@ The chapter has three jobs. First, name what OpenTelemetry is and what the GenAI
 
 ## OpenTelemetry at ten thousand feet
 
-**OpenTelemetry (OTel)** is a CNCF project that standardises three things: a **data model** for traces / metrics / logs, an **SDK** that produces them in that model, and a **wire protocol (OTLP)** that ships them to a backend. It is the industry convergence layer. Every major APM — Datadog, Splunk Observability Cloud, Elastic APM, Grafana (Tempo / Mimir / Loki), Dynatrace, New Relic, Honeycomb, Azure Monitor, AWS CloudWatch Application Signals, Google Cloud Operations — ingests OTLP, either natively or through a translator. <!-- needs-research: confirm current OTLP ingestion status for each named APM at time of publication — the matrix evolves -->
+**OpenTelemetry (OTel)** is a CNCF project that standardises three things: a **data model** for traces / metrics / logs, an **SDK** that produces them in that model, and a **wire protocol (OTLP)** that ships them to a backend. It is the industry convergence layer. Every major APM — Datadog, Splunk Observability Cloud, Elastic APM, Grafana (Tempo / Mimir / Loki), Dynatrace, New Relic, Honeycomb, Azure Monitor, AWS CloudWatch Application Signals, Google Cloud Operations — ingests OTLP, either natively or through a translator (vendor OTLP-ingestion status is actively maintained in the [OpenTelemetry vendors page](https://opentelemetry.io/ecosystem/vendors/) and should be re-checked at pilot kickoff).
 
 The three signals, in LLM-pilot terms:
 
@@ -24,7 +24,7 @@ The alternative is a vendor-proprietary SDK (the Datadog agent library, the New 
 
 1. **Backend portability.** The pilot may land on Datadog in Archetype A, Splunk in Archetype B, Sentinel in Archetype C — and often more than one inside the same customer. OTel instruments once; routing moves in the Collector config, not in the application code.
 2. **Shared vocabulary with the customer.** The customer's SRE / observability team already instruments their own services with OTel in most new build-outs. An LLM pilot that speaks OTel inherits the customer's existing dashboards, conventions, and runbook template. A proprietary SDK makes the pilot an island.
-3. **Standards traction specifically for GenAI.** The [OpenTelemetry Semantic Conventions for Generative AI](https://opentelemetry.io/docs/specs/semconv/gen-ai/) are the only cross-vendor attempt at a stable attribute vocabulary for LLM operations; they are the input every APM vendor is now mapping to in their LLM Observability features. <!-- needs-research: the GenAI semconv status is "Experimental" at publication time; confirm current status (stable / experimental / release-candidate) before shipping to a customer -->
+3. **Standards traction specifically for GenAI.** The [OpenTelemetry Semantic Conventions for Generative AI](https://github.com/open-telemetry/semantic-conventions-genai) are the only cross-vendor attempt at a common attribute vocabulary for LLM operations (all `gen_ai.*` attributes remain at Development / experimental stability as of late 2026, having been moved to a dedicated `semantic-conventions-genai` repository in v1.42); they are the input every APM vendor is now mapping to in their LLM Observability features.
 
 ### What the GenAI semantic conventions commit to
 
@@ -32,17 +32,17 @@ The semconv specifies the **attribute names, value types, and span names** for G
 
 The attribute namespace is `gen_ai.*`. The commonly instrumented attributes for a model-call span:
 
-- `gen_ai.system` — the provider identifier (e.g. `anthropic`, `openai`, `aws.bedrock`, `azure.ai.openai`, `vertex_ai`). <!-- needs-research: confirm current enumerated values; this list was in flux at publication -->
+- `gen_ai.provider.name` — the provider identifier (e.g. `anthropic`, `openai`, `aws.bedrock`, `azure.ai.openai`, `gcp.vertex_ai`). This attribute replaced `gen_ai.system` in semconv v1.37; backends generally accept both during the transition.
 - `gen_ai.request.model` — the model identifier requested by the caller (e.g. `claude-opus-4-8`, `gpt-4o`).
 - `gen_ai.response.model` — the model identifier the provider reports served the request. May differ from `request.model` when the provider aliases or routes.
-- `gen_ai.operation.name` — the operation performed (`chat`, `text_completion`, `embeddings`, `generate_content`, `tool_call`). <!-- needs-research: confirm enumerated values; the operation vocabulary changed between semconv revisions -->
+- `gen_ai.operation.name` — the operation performed (`chat`, `text_completion`, `embeddings`, `generate_content`, `execute_tool`, `invoke_agent`; the current enumerated set lives in the [semconv-genai registry](https://github.com/open-telemetry/semantic-conventions-genai/blob/main/docs/registry/attributes/gen-ai.md)).
 - `gen_ai.request.temperature`, `gen_ai.request.top_p`, `gen_ai.request.top_k`, `gen_ai.request.max_tokens` — standard sampling parameters.
-- `gen_ai.usage.input_tokens`, `gen_ai.usage.output_tokens` — token counts as returned by the provider. (Earlier semconv revisions used `prompt_tokens` / `completion_tokens`; the stable names are the `usage.*` form.) <!-- needs-research: confirm whether the deprecation of prompt_tokens / completion_tokens is complete at publication time -->
+- `gen_ai.usage.input_tokens`, `gen_ai.usage.output_tokens` — token counts as returned by the provider. (Earlier semconv revisions used `gen_ai.usage.prompt_tokens` / `gen_ai.usage.completion_tokens`; those have been deprecated in favour of the `input_tokens` / `output_tokens` form, and analytics should accept both during the transition.)
 - `gen_ai.response.finish_reasons` — array of per-choice finish reasons.
 - `gen_ai.conversation.id` — a stable identifier for a multi-turn session, when the application tracks one.
 - Span name convention: `{operation.name} {model}` (e.g. `chat claude-opus-4-8`) for provider-level spans.
 
-For retrieval / tool-call spans, the semconv adds companion attributes — `gen_ai.tool.name`, `gen_ai.tool.call.id`, and a growing set for retrieval ([mod-105 Chapter 03](../mod-105-grounding-on-customer-data/) territory, worth cross-verifying before shipping). <!-- needs-research: the retrieval / RAG attribute namespace under gen_ai.* is actively being specced; confirm current attributes before authoring the schema -->
+For retrieval / tool-call spans, the semconv adds companion attributes — `gen_ai.tool.name`, `gen_ai.tool.call.id`, and a growing set for retrieval (e.g. `gen_ai.data_source.id`, `gen_ai.retrieval.top_k`) that remains under active specification ([mod-105 Chapter 03](../mod-105-grounding-on-customer-data/) territory, worth cross-verifying against the [semconv-genai](https://github.com/open-telemetry/semantic-conventions-genai) registry before shipping).
 
 For *content* capture — the actual prompt and completion strings — the semconv provides opt-in event-based mechanisms (`gen_ai.user.message`, `gen_ai.assistant.message`, `gen_ai.choice`) rather than string attributes, because:
 
@@ -50,7 +50,7 @@ For *content* capture — the actual prompt and completion strings — the semco
 - Content is typically large and bloats trace stores if emitted indiscriminately.
 - Backends that render chat transcripts need structured event shape, not a flat attribute.
 
-The redaction pipeline later in this chapter is where "to capture or not to capture" becomes "which destination gets which fields." <!-- needs-research: confirm current event-vs-attribute convention for message content in the GenAI semconv at publication time -->
+The redaction pipeline later in this chapter is where "to capture or not to capture" becomes "which destination gets which fields." The carrier itself is still evolving — later semconv revisions have moved toward `gen_ai.input.messages` / `gen_ai.output.messages` attribute shapes in place of the earlier per-message events — so the pipeline is designed to work against whichever carrier the SDK currently emits.
 
 ## The attribute set the FDE actually instruments
 
@@ -230,15 +230,15 @@ Three things to notice. First, every span and every metric point carries `pilot.
 
 The attribute set only buys native consumption if the customer's APM parses it. Current state as of publication:
 
-- **[Datadog LLM Observability](https://docs.datadoghq.com/llm_observability/).** Ingests OTLP; maps `gen_ai.*` attributes to Datadog's LLM Observability feature; renders a "trace view" with model / tokens / cost / latency per span. <!-- needs-research: confirm the specific semconv revision Datadog LLM Observability maps against at publication time, and the current product name -->
-- **[Dynatrace](https://www.dynatrace.com/platform/artificial-intelligence/).** AI Observability product reads OpenTelemetry GenAI spans. <!-- needs-research: confirm product name and current semconv-revision support -->
-- **[New Relic AI Monitoring](https://newrelic.com/platform/ai-monitoring).** Maps GenAI semconv; dashboards render tokens / cost / model usage. <!-- needs-research: confirm current product capabilities -->
-- **[Splunk Observability Cloud](https://www.splunk.com/en_us/products/observability.html).** Ingests OTLP; GenAI-specific views via APM or via log-based analytics on OTLP-shaped log records. <!-- needs-research: confirm Splunk's current GenAI-specific feature naming -->
-- **[Elastic Observability](https://www.elastic.co/observability).** OTLP-native; integrates with Elastic's Kibana dashboards. <!-- needs-research: confirm Elastic's GenAI-specific analytic surface -->
-- **[Grafana Cloud](https://grafana.com/products/cloud/).** Tempo (traces), Mimir (metrics), Loki (logs) ingest OTLP; Grafana's LLM-specific dashboard templates exist in the community. <!-- needs-research: confirm whether Grafana Labs ships an official LLM Observability package at publication time -->
-- **[Microsoft Sentinel](https://learn.microsoft.com/en-us/azure/sentinel/) + [Azure Monitor / Application Insights](https://learn.microsoft.com/en-us/azure/azure-monitor/).** Azure Monitor consumes OTLP; Application Insights renders GenAI spans; Sentinel reads the correlated log destination. <!-- needs-research: confirm Azure Monitor's current GenAI semconv coverage -->
-- **[AWS CloudWatch Application Signals](https://docs.aws.amazon.com/AmazonCloudWatch/latest/monitoring/CloudWatch-Application-Signals.html).** OTLP-native; LLM-specific dashboards via managed Grafana for Bedrock workloads. <!-- needs-research: confirm Application Signals' current GenAI attribute coverage -->
-- **[Google Cloud Operations Suite](https://cloud.google.com/products/operations).** OTLP-native; Cloud Trace / Cloud Logging / Cloud Monitoring consume `gen_ai.*`. <!-- needs-research: confirm Google Cloud's current LLM-specific analytic surface -->
+- **[Datadog LLM Observability](https://docs.datadoghq.com/llm_observability/).** Ingests OTLP; natively maps `gen_ai.*` attributes from semconv v1.37 onward to Datadog's LLM Observability schema ([Datadog's OTel-GenAI announcement](https://www.datadoghq.com/blog/llm-otel-semantic-convention/)); renders a "trace view" with model / tokens / cost / latency per span.
+- **[Dynatrace AI Observability](https://docs.dynatrace.com/docs/observe/dynatrace-for-ai-observability).** Reads OpenTelemetry GenAI spans alongside OneAgent and OpenInference ingest paths.
+- **[New Relic AI Monitoring](https://newrelic.com/platform/ai-monitoring).** Maps GenAI semconv — [OpenTelemetry support for AI monitoring went GA in August 2026](https://docs.newrelic.com/whats-new/2026/08/whats-new-08-26-otel-ai-monitoring/); dashboards render tokens / cost / model usage.
+- **[Splunk Observability Cloud](https://www.splunk.com/en_us/products/observability.html).** Ingests OTLP; ships [Splunk AI Agent Monitoring](https://help.splunk.com/en/splunk-observability-cloud/observability-for-ai/splunk-ai-agent-monitoring) and the [GenAI Observability for Splunk](https://splunkbase.splunk.com/app/8308) app for LLM / RAG / agent telemetry.
+- **[Elastic Observability](https://www.elastic.co/observability).** OTLP-native; the [Elastic Distributions of OpenTelemetry (EDOT)](https://www.elastic.co/docs/solutions/observability/get-started/opentelemetry/use-cases/llms) ship LLM observability support and surface GenAI spans in Kibana.
+- **[Grafana Cloud](https://grafana.com/products/cloud/).** Tempo (traces), Mimir (metrics), Loki (logs) ingest OTLP; [Grafana Cloud AI Observability](https://grafana.com/docs/grafana-cloud/observe-and-act/monitor-applications/ai-observability/) (OpenLIT-based) and [Agent Observability](https://grafana.com/docs/grafana-cloud/machine-learning/agent-observability/) (public preview from GrafanaCON 2026) surface LLM-specific dashboards.
+- **[Microsoft Sentinel](https://learn.microsoft.com/en-us/azure/sentinel/) + [Azure Monitor / Application Insights](https://learn.microsoft.com/en-us/azure/azure-monitor/).** Azure Monitor consumes OTLP; Application Insights' [Agent Observability view](https://learn.microsoft.com/en-us/azure/azure-monitor/app/agents-view) renders GenAI spans against the OpenTelemetry GenAI semantics; Sentinel reads the correlated log destination.
+- **[AWS CloudWatch Application Signals](https://docs.aws.amazon.com/AmazonCloudWatch/latest/monitoring/CloudWatch-Application-Signals.html).** OTLP-native; [generates GenAI attributes for Amazon Bedrock API calls](https://docs.aws.amazon.com/AmazonCloudWatch/latest/monitoring/Services-example-scenario-GenerativeAI.html) (e.g. `gen_ai.request.model`, `gen_ai.usage.input_tokens`) and surfaces them in a dedicated GenAI observability section of the CloudWatch console.
+- **[Google Cloud Observability](https://cloud.google.com/products/operations).** OTLP-native; Cloud Trace / Cloud Logging / Cloud Monitoring consume `gen_ai.*`; Vertex AI / the Gemini Enterprise Agent Platform ships a [built-in Cloud Monitoring dashboard](https://cloud.google.com/blog/products/ai-machine-learning/performance-monitoring-and-alerts-for-gen-ai-models-on-vertex-ai) for token usage, latency, and error rates on gen-AI models.
 - **[Honeycomb](https://www.honeycomb.io/).** OTLP-native; general-purpose high-cardinality trace analysis renders GenAI spans without a dedicated product layer.
 
 The pattern: every serious APM now ingests OTLP natively, and most ship a GenAI-specific analytic layer on top. The FDE's job is to verify *which revision of the semconv* the customer's APM currently parses — attribute renames between semconv revisions (e.g. `prompt_tokens` → `usage.input_tokens`) are a common source of "the Datadog LLM Observability dashboard is empty" tickets.
@@ -353,7 +353,7 @@ Three processors earn the architecture:
 - `transform/redact_message_events` deletes GenAI message events except for a specifically-tagged `content_cleared` destination (the self-hosted LLM observability platform, cleared under the data contract for prompt / completion retention).
 - `filter/drop_healthchecks` drops the Kubernetes health-check spans that otherwise pollute 60-80 % of the trace volume.
 
-<!-- needs-research: confirm current OTel Collector processor names and OTTL (OpenTelemetry Transformation Language) syntax at publication time; both have evolved rapidly -->
+([OTTL reached v1 stability](https://opentelemetry.io/blog/2026/ottl-v1/) across traces, metrics, and logs in opentelemetry-collector-contrib v0.164.0, and the `tailsamplingprocessor` / `transform` / `filter` / `attributes` processors named here are current component names in `opentelemetry-collector-contrib`.)
 
 ## The redaction pipeline
 
@@ -363,7 +363,7 @@ Four redaction layers, each applied at the earliest possible point.
 
 1. **SDK-level opt-in for content capture.** The OTel instrumentation emits `gen_ai.user.message` / `gen_ai.assistant.message` events only when the pilot's config toggles `capture_content: true`. In Archetype A (PHI-bearing), the default is `false` for every destination except the self-hosted LLM observability platform, which is enabled per a specific feature flag (per [mod-109 Chapter 03](../mod-109-deployment-rollout-change-management/03-feature-flag-strategy.md)).
 2. **Collector-level filtering.** As in the pipeline above, the `transform/redact_message_events` processor removes content fields before export to any destination that is not content-cleared. Each exporter is tagged; the processor routes against the tag.
-3. **Destination-level detection and masking.** The content-cleared destination (Langfuse / Phoenix / Weave) runs its own PII / PHI detector (Presidio-based or equivalent) on ingest and masks named-entity spans in the stored content. <!-- needs-research: confirm Langfuse / Phoenix / Weave PII-masking capabilities at publication time; several of them integrate Microsoft Presidio but coverage differs -->
+3. **Destination-level detection and masking.** The content-cleared destination runs a PII / PHI detector on ingest and masks named-entity spans in the stored content; concrete coverage differs by platform (Langfuse exposes [custom masking callbacks](https://langfuse.com/docs/observability/features/masking) commonly wired to Microsoft Presidio; [Weave ships a Presidio-based redaction path](https://weave-docs.wandb.ai/reference/gen_notebooks/pii); Phoenix generally leaves masking to the upstream pipeline layer).
 4. **Access-control-level separation.** The content-cleared destination's admin group is a *customer-held* IdP group (per [mod-103 Chapter 03](../mod-103-enterprise-integration/)). The vendor FDE does not have default access to raw prompts — the customer's operations lead or DPO grants read access under break-glass.
 
 A table showing which destination gets which fields for Archetype A:
